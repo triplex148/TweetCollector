@@ -113,6 +113,7 @@ public class TweetLoader implements RateLimitStatusListener
 	    }
 	  }
 	  connector.updateEventCollectionState(event.getEventId(), "2"); // update event to collecting finished
+	  System.out.println(statuses.size() + " Tweets loaded into system");
 
 	} catch (TwitterException ex)
 	{
