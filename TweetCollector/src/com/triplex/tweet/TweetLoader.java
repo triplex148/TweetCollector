@@ -7,8 +7,10 @@ import java.util.Calendar;
 import java.util.Date;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
+import java.util.StringTokenizer;
 
 import org.apache.log4j.Level;
 
@@ -93,7 +95,6 @@ public class TweetLoader implements RateLimitStatusListener
       {
 	try
 	{
-
 	  // initialize the twitterstream with customer keys
 	  connector.updateEventCollectionState(event.getEventId(), "1"); // update event to collecting active
 	  Query query = new Query(event.getTags());
@@ -103,24 +104,67 @@ public class TweetLoader implements RateLimitStatusListener
 	  if(event.getDateTo() != null)
 	    query.setUntil(sdf.format(event.getDateTo()));
 	  List<Status> statuses = mainLoader.loadTweets(query);
+	  int countTweetsInserted = 0;
 	  for (int i = 0; i < statuses.size(); i++)
 	  {
 	    Status tweet = statuses.get(i);
 	    if (tweet != null)
 	    {
 	      TweetState tw = new TweetState(tweet.getId(), tweet.getText(), tweet.getUser().getName(), new Date(tweet.getCreatedAt().getTime()), tweet.getUser().getLocation(), tweet.getUser().getLang(), event.getEventId());
-	      connector.insertTweetEntry(tw);
+	      countTweetsInserted+=connector.insertTweetEntry(tw);
 	    }
 	  }
 	  connector.updateEventCollectionState(event.getEventId(), "2"); // update event to collecting finished
-	  System.out.println(statuses.size() + " Tweets loaded into system");
+	  System.out.println("Event: " + event.getEventTitle() + " --> " + countTweetsInserted + " Tweets inserted into the system.");
 
 	} catch (TwitterException ex)
 	{
+	  System.out.println(ex.getMessage());
 	  traceHandler.getLogger().log(Level.ERROR, "Twitter Failure: " + ex.getMessage());
 	}
       }
     }
+    
+    /**
+     * Start the sentiment evaluation
+     */
+    Map<String, Integer> sentiments = connector.initializeSentimentWords();
+    List<TweetState> allTweets = connector.getAllTweetEntries();
+    // Sentiment with 
+    int j=0;
+    for(int i=0;i<allTweets.size();i++)
+    {
+      TweetState cur = allTweets.get(i);
+      String tweetTxt = cur.getTweetText();
+      StringTokenizer st = new StringTokenizer(tweetTxt);
+      int summary = 0;
+      int analysisCount = 0;
+      int wordCount = 0;
+      while(st.hasMoreTokens())
+      {
+	String s = st.nextToken().toLowerCase();
+	
+	if(sentiments.containsKey(s))
+	{
+	  Integer weight = sentiments.get(s);
+	  analysisCount++;
+	  summary +=weight;
+	}
+	wordCount++;
+      }
+      // now calculate the weight and save it to the tweet
+      /*
+       * this was a good movie but i hate the end of the day
+       * -4
+       */
+      if(cur.getWeight() != summary)
+      {
+	cur.setWeight(summary);
+	connector.updateEventTweetWeight(cur.getTweetId(), cur.getWeight());
+	j++;
+      }
+    }
+    System.out.println(j + " Tweets are evaluated");
   }
 
   /**
@@ -239,6 +283,8 @@ public class TweetLoader implements RateLimitStatusListener
   @Override
   public void onRateLimitReached(RateLimitStatusEvent arg0)
   {
+    traceHandler.getLogger().log(Level.ERROR, "Twitter Failure: " + arg0.getRateLimitStatus());
+    System.exit(0);
   }
 
   /**

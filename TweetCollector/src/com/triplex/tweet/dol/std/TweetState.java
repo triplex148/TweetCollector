@@ -11,6 +11,7 @@ public class TweetState
   private Date tweetCreationDate;
   private String tweetLocation;
   private String tweetLanguage;
+  private int weight;
   private int eventId;
   public TweetState()
   {
@@ -91,5 +92,13 @@ public class TweetState
   public void setTweetId(long tweetId)
   {
     this.tweetId = tweetId;
+  }
+  public int getWeight()
+  {
+    return weight;
+  }
+  public void setWeight(int weight)
+  {
+    this.weight = weight;
   }
 }

@@ -8,7 +8,9 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.Date;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Properties;
 
 import org.apache.log4j.Level;
@@ -165,8 +167,9 @@ public class TweetDatabaseConnector
   /**
    * @param state
    */
-  public void insertTweetEntry(TweetState state)
+  public int insertTweetEntry(TweetState state)
   {
+    int i = 0;
     try
     {
       PreparedStatement preparedStatement = connection.prepareStatement("insert ignore into tweet_entry (id, tw_text, tw_creationdate, tw_user, tw_location, tw_language, event_id) values (?, ?, ?, ?, ?, ?, ?)");
@@ -177,10 +180,11 @@ public class TweetDatabaseConnector
       preparedStatement.setString(5, state.getTweetLocation());
       preparedStatement.setString(6, state.getTweetLanguage());
       preparedStatement.setInt(7, state.getEventId());
-      int i = preparedStatement.executeUpdate();
+      i = preparedStatement.executeUpdate();
       if (i <= 0)
       {
 	traceHandler.getLogger().log(Level.INFO, "Nothing inserted into database for Tweet: " + state);
+	i=0;
       } else
       {
 	traceHandler.getLogger().log(Level.INFO, "Tweet successfully inserted to db: " + state);
@@ -189,5 +193,99 @@ public class TweetDatabaseConnector
     {
       traceHandler.getLogger().log(Level.ERROR, ex.getMessage());
     }
+    return i;
+  }
+
+  public Map<String, Integer> initializeSentimentWords()
+  {
+    Map<String, Integer> ret = new HashMap<String, Integer>();
+    try
+    {
+      StringBuilder prepQuery = new StringBuilder();
+      prepQuery.append("SELECT id, sent_text, sent_weight FROM SENTIMENT");
+      
+      PreparedStatement preparedStatement = connection.prepareStatement(prepQuery.toString());
+      
+      ResultSet rs = preparedStatement.executeQuery();
+      while (rs.next())
+      {
+	try
+	{
+	  Integer id = rs.getInt("id");
+	  String txt = rs.getString("sent_text");
+	  Integer weight = rs.getInt("sent_weight");
+	  ret.put(txt, weight);
+	} catch (SQLException ex)
+	{
+	  traceHandler.getLogger().log(Level.ERROR, ex.getMessage());
+	}
+      }
+      traceHandler.getLogger().log(Level.INFO, "SentimentWords read into system. Count: " + ret.size());
+    } catch (SQLException ex)
+    {
+      traceHandler.getLogger().log(Level.ERROR, ex.getMessage());
+    }
+    return ret;
+  }
+  
+  public List<TweetState> getAllTweetEntries()
+  {
+    List<TweetState> ret = new ArrayList<TweetState>();
+    try
+    {
+      StringBuilder prepQuery = new StringBuilder();
+      prepQuery.append("SELECT id, tw_text, tw_creationdate, tw_user, tw_location, tw_language, tw_deleted, event_id, tw_weight  FROM tweet_entry");
+      
+      PreparedStatement preparedStatement = connection.prepareStatement(prepQuery.toString());
+      
+      ResultSet rs = preparedStatement.executeQuery();
+      while (rs.next())
+      {
+	try
+	{
+	  Long id = rs.getLong("id");
+	  String txt = rs.getString("tw_text");
+	  Date creationDate = rs.getDate("tw_creationdate");
+	  String user = rs.getString("tw_user");
+	  String loc = rs.getString("tw_location");
+	  String language = rs.getString("tw_language");
+	  Integer eventId = rs.getInt("event_id");
+	  Integer weight = rs.getInt("tw_weight");
+	  
+	  TweetState twState = new TweetState(id, txt, user, creationDate, loc, language, eventId);
+	  twState.setWeight(weight);
+	  ret.add(twState);
+	} catch (SQLException ex)
+	{
+	  traceHandler.getLogger().log(Level.ERROR, ex.getMessage());
+	}
+      }
+      traceHandler.getLogger().log(Level.INFO, "SentimentWords read into system. Count: " + ret.size());
+    } catch (SQLException ex)
+    {
+      traceHandler.getLogger().log(Level.ERROR, ex.getMessage());
+    }
+    return ret;
+  }
+  
+  public int updateEventTweetWeight(Long tweetId, Integer weight)
+  {
+    int i = 0;
+    try
+    {
+      PreparedStatement preparedStatement = connection.prepareStatement("update tweet_entry set tw_weight = ? where id = ? ");
+      preparedStatement.setInt(1, weight);
+      preparedStatement.setLong(2, tweetId);
+
+      i = preparedStatement.executeUpdate();
+      if (i <= 0)
+      {
+	i=0;
+      }
+    } catch (SQLException ex)
+    {
+      traceHandler.getLogger().log(Level.ERROR, ex.getMessage());
+    }
+    return i;
   }
 }
