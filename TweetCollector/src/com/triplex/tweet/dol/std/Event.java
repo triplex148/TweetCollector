@@ -4,6 +4,8 @@ import java.util.Date;
 
 public class Event
 {
+  public static final String COLLECTION_STATE_ACTIVE = "1";
+  public static final String COLLECTION_STATE_FINISHED = "2";
   private Integer eventId;
   private String eventTitle;
   private String eventDesc;

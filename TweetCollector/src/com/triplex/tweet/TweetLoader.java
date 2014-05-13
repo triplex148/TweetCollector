@@ -30,7 +30,7 @@ import com.triplex.tweet.jdbc.TweetDatabaseConnector;
 import com.triplex.tweet.trace.TraceHandler;
 
 /**
- * Tweet loader thread for retrieving tweets by a defined hashtag and loading
+ * Tweet loader for retrieving tweets by a defined hashtag and loading
  * them into the database for an event id.
  * 
  * For this program, there are two seperated entrypoints:
@@ -80,31 +80,66 @@ public class TweetLoader implements RateLimitStatusListener
 				 (String) p.get("accessToken"),
 				 (String) p.get("accessTokenSecret"));
     
-    List<Event> allEvents = connector.getEventsForProcess(eventId);
+    List<Event> allEvents = connector.readEventObjects(eventId);
     
     if(allEvents.isEmpty())
       traceHandler.getLogger().log(Level.INFO, "No events in the system to process new tweets");
     
     for(Event event : allEvents)
     {
-      Date dateFrom = event.getDateFrom();
-      Date dateTo = event.getDateTo();
-      Date currentDate = Calendar.getInstance().getTime();
-      
-      if(between(currentDate, dateFrom, dateTo))
+      try{
+        // start the event process (query tweets ..)
+        mainLoader.processEvent(event, true, connector);
+      }catch(TwitterException e)
       {
-	try
+	break;
+      }
+    }
+    
+    mainLoader.processSentimentEvaluation(connector);
+  }
+
+  /**
+   * Process the given event with following specifications:
+   * 	- Check the from and to date of the given event. If the current date is between the two dates, the event will be processed
+   * 	- Then the event collection state will be set to 1 (collection active/started)
+   * 	- Tweets will be loaded from twitter4j api for the given tags/datefrom/dateto
+   * 	- Tweets will be inserted into database if not exists
+   * 	- Finally the event collection state will be set to 2 (collection not active/finished)
+   * 
+   * @param event {@link Event} the given event object for which the process starts
+   * @param boolean flag indicate if the twitter4J api should be triggered. This is used for junit tests, because junit doesn't need
+   * 			a twitter4J api call at least
+   * @param connector {@link TweetDatabaseConnector} the connector
+   * @return boolean flag if the event is processed (the current date is between from and to date of the event)
+   */
+  public boolean processEvent(Event event, boolean queryTweets, TweetDatabaseConnector connector) throws TwitterException
+  {
+    boolean ret = false;
+    
+    Date dateFrom = event.getDateFrom();
+    Date dateTo = event.getDateTo();
+    Date currentDate = Calendar.getInstance().getTime();
+    
+    if(between(currentDate, dateFrom, dateTo))
+    {
+      ret = true;
+      try
+      {
+	// initialize the twitterstream with customer keys
+	connector.updateEventCollectionState(event.getEventId(), Event.COLLECTION_STATE_ACTIVE); // update event to collecting active
+	if(queryTweets)
 	{
-	  // initialize the twitterstream with customer keys
-	  connector.updateEventCollectionState(event.getEventId(), "1"); // update event to collecting active
 	  Query query = new Query(event.getTags());
 	  SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd");
 	  if(event.getDateFrom() != null)
 	    query.setSince(sdf.format(event.getDateFrom()));
 	  if(event.getDateTo() != null)
 	    query.setUntil(sdf.format(event.getDateTo()));
-	  List<Status> statuses = mainLoader.loadTweets(query);
+	    
+	  List<Status> statuses = loadTweets(query);
 	  int countTweetsInserted = 0;
+	    
 	  for (int i = 0; i < statuses.size(); i++)
 	  {
 	    Status tweet = statuses.get(i);
@@ -114,23 +149,32 @@ public class TweetLoader implements RateLimitStatusListener
 	      countTweetsInserted+=connector.insertTweetEntry(tw);
 	    }
 	  }
-	  connector.updateEventCollectionState(event.getEventId(), "2"); // update event to collecting finished
-	  System.out.println("Event: " + event.getEventTitle() + " --> " + countTweetsInserted + " Tweets inserted into the system.");
-
-	} catch (TwitterException ex)
-	{
-	  System.out.println(ex.getMessage());
-	  traceHandler.getLogger().log(Level.ERROR, "Twitter Failure: " + ex.getMessage());
+	  System.out.println("Event: " + event.getEventTitle() + " --> " + countTweetsInserted + " Tweets inserted into the database.");
+	  traceHandler.getLogger().log(Level.INFO, "Event: " + event.getEventTitle() + " --> " + countTweetsInserted + " Tweets inserted into the database.");
 	}
+	connector.updateEventCollectionState(event.getEventId(), Event.COLLECTION_STATE_FINISHED); // update event to collecting finished
+      } catch (TwitterException ex)
+      {
+	ex.printStackTrace();
+	traceHandler.getLogger().log(Level.ERROR, "Twitter Failure: " + ex.getMessage());
       }
     }
-    
-    /**
-     * Start the sentiment evaluation
-     */
-    Map<String, Integer> sentiments = connector.initializeSentimentWords();
-    List<TweetState> allTweets = connector.getAllTweetEntries();
-    // Sentiment with 
+    return ret;
+  }
+  
+  /**
+   * Start the sentiment evaluation.
+   * 
+   * Steps to complete the sentiment analysis
+   * 	- Read all sentiment words and all tweet entries into the memory
+   * 	- Iteration over all tweet entries and processing one after another with the following handling:
+   *		- Each word in an tweet entry text will be analysed and compared with the sentiment
+   *		  words and calculated their sentiment weight.
+   */
+  public void processSentimentEvaluation(TweetDatabaseConnector connector)
+  {
+    Map<String, Integer> sentiments = connector.readAllSentimentWords();
+    List<TweetState> allTweets = connector.readTweetEntries(null);
     int j=0;
     for(int i=0;i<allTweets.size();i++)
     {
@@ -139,34 +183,36 @@ public class TweetLoader implements RateLimitStatusListener
       StringTokenizer st = new StringTokenizer(tweetTxt);
       int summary = 0;
       int analysisCount = 0;
-      int wordCount = 0;
       while(st.hasMoreTokens())
       {
-	String s = st.nextToken().toLowerCase();
-	
-	if(sentiments.containsKey(s))
-	{
-	  Integer weight = sentiments.get(s);
-	  analysisCount++;
-	  summary +=weight;
-	}
-	wordCount++;
+  	String s = st.nextToken().toLowerCase();
+  	
+  	if(sentiments.containsKey(s))
+  	{
+  	  Integer weight = sentiments.get(s);
+  	  analysisCount++;
+  	  summary +=weight;
+  	}
       }
-      // now calculate the weight and save it to the tweet
       /*
+       * now calculate the weight and save it to the tweet
+       * 
        * this was a good movie but i hate the end of the day
-       * -4
+       * -10
        */
-      if(cur.getWeight() != summary)
+      if(analysisCount > 0)
       {
-	cur.setWeight(summary);
-	connector.updateEventTweetWeight(cur.getTweetId(), cur.getWeight());
-	j++;
+        summary = summary / analysisCount;
+        if(cur.getWeight() != summary)
+        {
+          cur.setWeight(summary);
+          connector.updateEventTweetWeight(cur.getTweetId(), cur.getWeight());
+          j++;
+        }
       }
     }
-    System.out.println(j + " Tweets are evaluated");
+    System.out.println(j + " Tweets are new evaluated and analysed");
   }
-
   /**
    * Checks, if a date is between two other dates
    * @param date
@@ -284,7 +330,6 @@ public class TweetLoader implements RateLimitStatusListener
   public void onRateLimitReached(RateLimitStatusEvent arg0)
   {
     traceHandler.getLogger().log(Level.ERROR, "Twitter Failure: " + arg0.getRateLimitStatus());
-    System.exit(0);
   }
 
   /**

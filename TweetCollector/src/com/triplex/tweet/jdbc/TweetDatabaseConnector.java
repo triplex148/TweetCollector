@@ -20,7 +20,7 @@ import com.triplex.tweet.dol.std.TweetState;
 import com.triplex.tweet.trace.TraceHandler;
 
 /**
- * Database connector for tweet and event things
+ * JBDC Database connector for tweet and event specific operations
  * 
  * @author Manny
  */
@@ -31,7 +31,7 @@ public class TweetDatabaseConnector
   private static TweetDatabaseConnector singleInstance;
 
   /**
-   * @return
+   * @return {@link TweetDatabaseConnector} the one and only instance
    */
   public static TweetDatabaseConnector getOnlyInstance()
   {
@@ -43,7 +43,7 @@ public class TweetDatabaseConnector
   }
 
   /**
-   * 
+   * C'tor for initializing the database connection
    */
   private TweetDatabaseConnector()
   {
@@ -59,16 +59,17 @@ public class TweetDatabaseConnector
       initializeDatabaseConnection("jdbc:mysql://" + hostname + ":" + port + "/" + dbName, userName, pwd);
     } catch (Exception ex)
     {
-      System.out.println(ex.getMessage());
       ex.printStackTrace();
       traceHandler.getLogger().log(Level.ERROR, ex.getMessage());
     }
   }
 
   /**
-   * @param conUrl
-   * @param dbUser
-   * @param dbPwd
+   * Initializing the database connection
+   * 
+   * @param conUrl {@link String} the connection url
+   * @param dbUser {@link String} the username
+   * @param dbPwd {@link String} the db password
    * @return
    */
   public Connection initializeDatabaseConnection(String conUrl, String dbUser, String dbPwd)
@@ -83,11 +84,11 @@ public class TweetDatabaseConnector
 	traceHandler.getLogger().log(Level.INFO, "DB-Connection successfully established");
       } catch (ClassNotFoundException cnf)
       {
-	System.out.println(cnf.getMessage());
+	cnf.printStackTrace();
 	traceHandler.getLogger().log(Level.ERROR, "Driver could not be loaded");
       } catch (SQLException e)
       {
-	System.out.println(e.getMessage());
+	e.printStackTrace();
 	traceHandler.getLogger().log(Level.ERROR, e.getMessage());
       }
     }
@@ -95,9 +96,13 @@ public class TweetDatabaseConnector
   }
 
   /**
-   * @return
+   * Retrieving events from table <EVENT>. A parameter eventId could be 
+   * specified in case a specific event is needed.
+   * 
+   * @param eventId {@link Integer} event object identifier
+   * @return {@link List} list of event objects
    */
-  public List<Event> getEventsForProcess(Integer eventId)
+  public List<Event> readEventObjects(Integer eventId)
   {
     List<Event> ret = new ArrayList<Event>();
     try
@@ -117,33 +122,99 @@ public class TweetDatabaseConnector
       ResultSet rs = preparedStatement.executeQuery();
       while (rs.next())
       {
-	try
-	{
-	  Integer id = rs.getInt("id");
-	  String title = rs.getString("event_title");
-	  String desc = rs.getString("event_description");
-	  Date dateFrom = rs.getDate("event_from");
-	  Date dateTo = rs.getDate("event_to");
-	  Integer twCount = rs.getInt("event_tw_count");
-	  String state = rs.getString("event_state");
-	  String tags = rs.getString("event_tweet_tags");
-	  Event ev = new Event(id, title, desc, dateFrom, dateTo, twCount, tags, state);
-	  ret.add(ev);
-	} catch (SQLException ex)
-	{
-	  traceHandler.getLogger().log(Level.ERROR, ex.getMessage());
-	}
+	Integer id = rs.getInt("id");
+	String title = rs.getString("event_title");
+	String desc = rs.getString("event_description");
+	Date dateFrom = rs.getDate("event_from");
+	Date dateTo = rs.getDate("event_to");
+	Integer twCount = rs.getInt("event_tw_count");
+	String state = rs.getString("event_state");
+	String tags = rs.getString("event_tweet_tags");
+	Event ev = new Event(id, title, desc, dateFrom, dateTo, twCount, tags, state);
+	ret.add(ev);
       }
-      traceHandler.getLogger().log(Level.INFO, "Events read into system. Count: " + ret.size());
+      traceHandler.getLogger().log(Level.INFO, ret.size() + " Events are read from database");
     } catch (SQLException ex)
     {
+      ex.printStackTrace();
       traceHandler.getLogger().log(Level.ERROR, ex.getMessage());
     }
     return ret;
   }
-
-  public void updateEventCollectionState(Integer eventId, String collectingState)
+  
+  /**
+   * Inserting of an event object. Respectively for junit test cases
+   *  
+   * @param id {@link Integer} objectId
+   * @param title {@link String} the event title
+   * @param description {@link String} the event description
+   * @param tags {@link String} the tweet tags for the event
+   * @return boolean flag indicate the state of insert operation
+   */
+  public boolean insertEventObject(Integer id, String title, String description, String tags)
   {
+    boolean ret = false;
+    try
+    {
+      PreparedStatement preparedStatement = connection.prepareStatement("insert into event (id, event_title, event_description, event_tweet_tags) values (?, ?, ?, ?)");
+      preparedStatement.setInt(1, id);
+      preparedStatement.setString(2, title);
+      preparedStatement.setString(3, description);
+      preparedStatement.setString(4, tags);
+      int i = preparedStatement.executeUpdate();
+      
+      if(i<=0)
+	ret = false;
+      else
+	ret = true;
+    } catch (SQLException ex)
+    {
+      ex.printStackTrace();
+      traceHandler.getLogger().log(Level.ERROR, ex.getMessage());
+    }
+    return ret;
+  }
+  
+  /**
+   * Delete an event object from database with the given object id. Respectively needed for junit testcases
+   * 
+   * @param id {@link Integer} the event id to delete
+   * @return boolean flag indicate the delete operation
+   */
+  public boolean deleteEventObject(Integer id)
+  {
+    boolean ret = false;
+    try
+    {
+      PreparedStatement preparedStatement = connection.prepareStatement("delete from event where id = ?");
+      preparedStatement.setInt(1, id);
+      int i = preparedStatement.executeUpdate();
+      
+      if(i<=0)
+	ret = false;
+      else
+	ret = true;
+    } catch (SQLException ex)
+    {
+      ex.printStackTrace();
+      traceHandler.getLogger().log(Level.ERROR, ex.getMessage());
+    }
+    return ret;
+  }
+  
+  /**
+   * Setting the event attribute event_state which indicate the current collection state of 
+   * the specified event. 
+   * 	- 0 indicate the starting state.
+   * 	- 1 indicate the state collection started
+   * 	- 2 indicate the state collection finished
+   * 
+   * @param eventId {@link Integer} the event object id
+   * @param collectingState {@link String} the collecting state
+   */
+  public boolean updateEventCollectionState(Integer eventId, String collectingState)
+  {
+    boolean ret = false;
     try
     {
       PreparedStatement preparedStatement = connection.prepareStatement("update event set event_state = ? where id = ? ");
@@ -156,16 +227,23 @@ public class TweetDatabaseConnector
 	traceHandler.getLogger().log(Level.INFO, "No update for event (" + eventId + ") executed");
       } else
       {
+	ret = true;
 	traceHandler.getLogger().log(Level.INFO, "Event (" + eventId + ") successfully updated: " + collectingState);
       }
     } catch (SQLException ex)
     {
+      ex.printStackTrace();
       traceHandler.getLogger().log(Level.ERROR, ex.getMessage());
     }
+    return ret;
   }
 
   /**
-   * @param state
+   * Inserting of an tweet entry into the database with all specified attributes. If an tweet entry still
+   * exists in the database, the insert into will be ignored and no exception will be thrown.
+   * 
+   * @param state {@link TweetState} the current tweet entry to insert
+   * @return int value of the insert process
    */
   public int insertTweetEntry(TweetState state)
   {
@@ -191,12 +269,18 @@ public class TweetDatabaseConnector
       }
     } catch (SQLException ex)
     {
+      ex.printStackTrace();
       traceHandler.getLogger().log(Level.ERROR, ex.getMessage());
     }
     return i;
   }
 
-  public Map<String, Integer> initializeSentimentWords()
+  /**
+   * Read all sentiment words from database and save them into a map with key the name and value the weight
+   * 
+   * @return {@link Map} of all sentiments with specific weight
+   */
+  public Map<String, Integer> readAllSentimentWords()
   {
     Map<String, Integer> ret = new HashMap<String, Integer>();
     try
@@ -209,26 +293,28 @@ public class TweetDatabaseConnector
       ResultSet rs = preparedStatement.executeQuery();
       while (rs.next())
       {
-	try
-	{
-	  Integer id = rs.getInt("id");
-	  String txt = rs.getString("sent_text");
-	  Integer weight = rs.getInt("sent_weight");
-	  ret.put(txt, weight);
-	} catch (SQLException ex)
-	{
-	  traceHandler.getLogger().log(Level.ERROR, ex.getMessage());
-	}
+	String txt = rs.getString("sent_text");
+	Integer weight = rs.getInt("sent_weight");
+	ret.put(txt, weight);
       }
-      traceHandler.getLogger().log(Level.INFO, "SentimentWords read into system. Count: " + ret.size());
+      traceHandler.getLogger().log(Level.INFO, ret.size() + " Sentiment words read from database");
     } catch (SQLException ex)
     {
+      ex.printStackTrace();
       traceHandler.getLogger().log(Level.ERROR, ex.getMessage());
     }
     return ret;
   }
   
-  public List<TweetState> getAllTweetEntries()
+  /**
+   * Read tweet entries from database. If a parameter eventId is specified, the tweets are 
+   * read for the given event. If the parameter is not set, all tweet entries in database for
+   * all events will be returned
+   * 
+   * @param eventIdParam {@link Integer} the event object id
+   * @return {@link List} list of tweet entries read from database
+   */
+  public List<TweetState> readTweetEntries(Integer eventIdParam)
   {
     List<TweetState> ret = new ArrayList<TweetState>();
     try
@@ -236,38 +322,43 @@ public class TweetDatabaseConnector
       StringBuilder prepQuery = new StringBuilder();
       prepQuery.append("SELECT id, tw_text, tw_creationdate, tw_user, tw_location, tw_language, tw_deleted, event_id, tw_weight  FROM tweet_entry");
       
+      if(eventIdParam != null)
+	prepQuery.append(" where event_id = ").append(eventIdParam);
+      
       PreparedStatement preparedStatement = connection.prepareStatement(prepQuery.toString());
       
       ResultSet rs = preparedStatement.executeQuery();
       while (rs.next())
       {
-	try
-	{
-	  Long id = rs.getLong("id");
-	  String txt = rs.getString("tw_text");
-	  Date creationDate = rs.getDate("tw_creationdate");
-	  String user = rs.getString("tw_user");
-	  String loc = rs.getString("tw_location");
-	  String language = rs.getString("tw_language");
-	  Integer eventId = rs.getInt("event_id");
-	  Integer weight = rs.getInt("tw_weight");
-	  
-	  TweetState twState = new TweetState(id, txt, user, creationDate, loc, language, eventId);
-	  twState.setWeight(weight);
-	  ret.add(twState);
-	} catch (SQLException ex)
-	{
-	  traceHandler.getLogger().log(Level.ERROR, ex.getMessage());
-	}
+	Long id = rs.getLong("id");
+	String txt = rs.getString("tw_text");
+	Date creationDate = rs.getDate("tw_creationdate");
+	String user = rs.getString("tw_user");
+	String loc = rs.getString("tw_location");
+	String language = rs.getString("tw_language");
+	Integer eventId = rs.getInt("event_id");
+	Integer weight = rs.getInt("tw_weight");
+	
+	TweetState twState = new TweetState(id, txt, user, creationDate, loc, language, eventId);
+	twState.setWeight(weight);
+	ret.add(twState);
       }
-      traceHandler.getLogger().log(Level.INFO, "SentimentWords read into system. Count: " + ret.size());
+      traceHandler.getLogger().log(Level.INFO, ret.size() + " tweet entries read from database");
     } catch (SQLException ex)
     {
+      ex.printStackTrace();
       traceHandler.getLogger().log(Level.ERROR, ex.getMessage());
     }
     return ret;
   }
   
+  /**
+   * Single entrypoint for execute a update query for setting the tweet weight for a single tweet object
+   * 
+   * @param tweetId {@link Long} tweet identifier
+   * @param weight {@link Integer} weight indicator
+   * @return int for update state
+   */
   public int updateEventTweetWeight(Long tweetId, Integer weight)
   {
     int i = 0;
@@ -284,8 +375,36 @@ public class TweetDatabaseConnector
       }
     } catch (SQLException ex)
     {
+      ex.printStackTrace();
       traceHandler.getLogger().log(Level.ERROR, ex.getMessage());
     }
     return i;
+  }
+  
+  /**
+   * Delete an tweet entry object from database with the given object id. Respectively needed for junit testcases
+   * 
+   * @param id {@link Integer} the tweet entry id to delete
+   * @return boolean flag indicate the delete operation
+   */
+  public boolean deleteTweetEntryObject(Long id)
+  {
+    boolean ret = false;
+    try
+    {
+      PreparedStatement preparedStatement = connection.prepareStatement("delete from tweet_entry where id = ?");
+      preparedStatement.setLong(1, id);
+      int i = preparedStatement.executeUpdate();
+      
+      if(i<=0)
+	ret = false;
+      else
+	ret = true;
+    } catch (SQLException ex)
+    {
+      ex.printStackTrace();
+      traceHandler.getLogger().log(Level.ERROR, ex.getMessage());
+    }
+    return ret;
   }
 }
