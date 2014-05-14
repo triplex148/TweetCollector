@@ -9,7 +9,7 @@ import com.triplex.tweet.jdbc.TweetDatabaseConnector;
  * For every testcase, a new method should be created with a well defined 
  * name. (test_nr_nameOfTestCase()). Each testcase should work with new created
  * objects (also on database) and finally after the testcase, the objects should
- * be deleted from database so no testdata remain on system
+ * be deleted from database so no testdata remain on system.
  * 
  * @author Manny
  */
