@@ -286,15 +286,16 @@ public class TweetDatabaseConnector
     try
     {
       StringBuilder prepQuery = new StringBuilder();
-      prepQuery.append("SELECT id, sent_text, sent_weight FROM SENTIMENT");
+      prepQuery.append("SELECT id, sent_word, sent_weight, sent_language FROM sentiment_definition");
       
       PreparedStatement preparedStatement = connection.prepareStatement(prepQuery.toString());
       
       ResultSet rs = preparedStatement.executeQuery();
       while (rs.next())
       {
-	String txt = rs.getString("sent_text");
+	String txt = rs.getString("sent_word");
 	Integer weight = rs.getInt("sent_weight");
+	//String lang = rs.getString("sent_language");
 	ret.put(txt, weight);
       }
       traceHandler.getLogger().log(Level.INFO, ret.size() + " Sentiment words read from database");
